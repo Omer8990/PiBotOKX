@@ -14,8 +14,6 @@ import os
 
 load_dotenv()
 
-domain_myokx = 'https://my.okx.com'
-domain_www = 'https://www.okx.com'
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -36,7 +34,7 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 # Trading parameters (high risk settings)
-SYMBOL = 'PI/USD'
+SYMBOL = 'PI/USDT'
 BASE_ORDER_SIZE = 0.85  # Use 85% of aevailable USDT for each trade
 PROFIT_THRESHOLD = 0.03  # 3% profit target
 STOP_LOSS = 0.05  # 5% stop loss
@@ -114,7 +112,7 @@ async def get_available_balance():
     """Get available USDT balance"""
     try:
         balance = exchange.fetch_balance()
-        return balance['USD']['free']
+        return balance['USDT']['free']
     except Exception as e:
         logger.error(f"Error fetching balance: {e}")
         await send_telegram_message(f"Unable to access wallet funds, sir. Error: {e}")
@@ -214,7 +212,7 @@ async def buy_pi(current_price):
         message = f"{random.choice(JARVIS_BUY_MESSAGES)}\n\n" \
                   f"📊 Trade Summary:\n" \
                   f"🔹 Bought: {amount:.4f} PI @ ${current_price:.4f}\n" \
-                  f"🔹 Total: ${order_size_usdt:.2f} USD\n" \
+                  f"🔹 Total: ${order_size_usdt:.2f} USDT\n" \
                   f"🔹 Target: ${current_price * (1 + PROFIT_THRESHOLD):.4f}\n" \
                   f"🔹 Stop Loss: ${current_price * (1 - STOP_LOSS):.4f}\n\n" \
                   f"Risk assessment: High. But as you say, sir, 'No risk, no reward.'"
@@ -349,7 +347,7 @@ async def trading_loop():
 async def start_command(update, context):
     """Start the bot"""
     await update.message.reply_text(
-        "JARVIS trading protocol activated, sir. Monitoring PI/USD for aggressive trading opportunities."
+        "JARVIS trading protocol activated, sir. Monitoring PI/USDT for aggressive trading opportunities."
     )
 
 
@@ -361,7 +359,7 @@ async def status_command(update, context):
     status_message = f"📊 Status Report - {datetime.now().strftime('%H:%M:%S')}\n\n"
     status_message += f"🔹 PI Price: ${market_data['price']:.4f}\n"
     status_message += f"🔹 24h Change: {market_data['change_24h']:.2f}%\n"
-    status_message += f"🔹 USD Balance: ${balance:.2f}\n"
+    status_message += f"🔹 USDT Balance: ${balance:.2f}\n"
 
     if in_position:
         profit_percentage = (market_data['price'] - entry_price) / entry_price * 100
@@ -420,7 +418,7 @@ async def set_params_command(update, context):
 
         await update.message.reply_text(
             f"Parameters updated successfully, sir:\n"
-            f"🔹 Order Size: {BASE_ORDER_SIZE * 100}% of USD\n"
+            f"🔹 Order Size: {BASE_ORDER_SIZE * 100}% of USDT\n"
             f"🔹 Profit Target: {PROFIT_THRESHOLD * 100}%\n"
             f"🔹 Stop Loss: {STOP_LOSS * 100}%"
         )
