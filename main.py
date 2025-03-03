@@ -9,9 +9,6 @@ from dotenv import load_dotenv
 import random
 
 # Load environment variables
-from dotenv import load_dotenv
-import os
-
 load_dotenv()
 
 # Configure logging
@@ -22,7 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Initialize OKX exchange
-exchange = ccxt.myokx({
+exchange = ccxt.okx({
     'apiKey': os.getenv('OKX_API_KEY'),
     'secret': os.getenv('OKX_SECRET'),
     'password': os.getenv('OKX_PASSWORD'),
@@ -35,7 +32,7 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 # Trading parameters (high risk settings)
 SYMBOL = 'PI/USDT'
-BASE_ORDER_SIZE = 0.85  # Use 85% of aevailable USDT for each trade
+BASE_ORDER_SIZE = 0.85  # Use 85% of available USDT for each trade
 PROFIT_THRESHOLD = 0.03  # 3% profit target
 STOP_LOSS = 0.05  # 5% stop loss
 VOLATILITY_THRESHOLD = 0.02  # 2% price movement to trigger analysis
@@ -193,7 +190,7 @@ async def buy_pi(current_price):
         usdt_balance = await get_available_balance()
         order_size_usdt = usdt_balance * BASE_ORDER_SIZE
 
-        if order_size_usdt < 2:  # Minimum trade size
+        if order_size_usdt < 10:  # Minimum trade size
             await send_telegram_message("Sir, available USDT balance is too low for meaningful trade execution.")
             return False
 
@@ -246,6 +243,8 @@ async def sell_pi(current_price, reason="profit"):
         # Calculate profit/loss
         entry_value = pi_amount * entry_price
         exit_value = pi_amount * current_price
+        profit_loss = exit_value - entry_value
+        profit_percent = (profit_loss / entry_value) * 100
 
         # Update position status
         in_position = False
