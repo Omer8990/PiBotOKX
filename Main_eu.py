@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import time
 from datetime import datetime
 import asyncio
 import ccxt
@@ -39,6 +40,8 @@ SYMBOL = 'PI-USD'
 BASE_ORDER_SIZE = 0.85
 PROFIT_THRESHOLD = 0.03
 STOP_LOSS = 0.035
+TRADE_COOLDOWN = 300  # 5 minutes
+RETRY_DELAY = 120  # 2 minutes retry delay
 
 # Trading statistics
 total_trades = 0
@@ -50,7 +53,7 @@ last_trade_time = None
 in_position = False
 entry_price = 0
 
-# Jarvis-style messages
+# ✅ Jarvis-style messages
 JARVIS_GREETINGS = [
     "Good day, sir. JARVIS is online and monitoring the PI market.",
     "Systems operational. Scanning PI market conditions now.",
@@ -108,64 +111,48 @@ async def get_available_balance():
         await send_telegram_message(f"{random.choice(JARVIS_ERROR_MESSAGES)}\nError retrieving balance: {e}")
         return 0
 
-async def buy_pi(current_price):
-    global in_position, entry_price, last_trade_time
-
+async def is_market_oversold():
+    """Check if the market is oversold using RSI before buying"""
     try:
-        usd_balance = await get_available_balance()
-        order_size_usd = usd_balance * BASE_ORDER_SIZE
-        if order_size_usd < 10:
-            await send_telegram_message("Insufficient USD to execute trade, sir.")
-            return False
+        candles = exchange.fetch_ohlcv(SYMBOL, '5m', limit=14)
+        closes = [candle[4] for candle in candles]
 
-        amount = order_size_usd / current_price
-        exchange.create_market_buy_order(SYMBOL, amount)
+        gains = sum(max(closes[i] - closes[i - 1], 0) for i in range(1, len(closes)))
+        losses = sum(max(closes[i - 1] - closes[i], 0) for i in range(1, len(closes)))
 
-        in_position = True
-        entry_price = current_price
-        last_trade_time = datetime.now()
+        rs = (gains / 14) / (losses / 14) if losses > 0 else 100
+        rsi = 100 - (100 / (1 + rs))
 
-        await send_telegram_message(f"{random.choice(JARVIS_BUY_MESSAGES)}\nBought {amount:.4f} PI @ ${current_price:.4f}")
-        return True
+        return rsi < 30  # Buy only if RSI is below 30 (oversold)
 
     except Exception as e:
-        logger.error(f"Error placing buy order: {e}")
-        await send_telegram_message(f"{random.choice(JARVIS_ERROR_MESSAGES)}\nBuy order failed: {e}")
+        logger.error(f"Error calculating RSI: {e}")
         return False
 
-async def sell_pi(current_price, reason="profit"):
-    global in_position, entry_price, last_trade_time, total_trades, winning_trades, losing_trades, total_profit_loss
-
+async def calculate_atr():
+    """Calculate Average True Range (ATR) for dynamic stop-loss"""
     try:
-        balance = exchange.fetch_balance()
-        pi_amount = balance['PI']['free']
-        if pi_amount * current_price < 10:
-            await send_telegram_message("Position too small to sell, sir.")
-            return False
-
-        exchange.create_market_sell_order(SYMBOL, pi_amount)
-
-        entry_value = pi_amount * entry_price
-        exit_value = pi_amount * current_price
-        profit_loss = exit_value - entry_value
-
-        total_trades += 1
-        total_profit_loss += profit_loss
-        if profit_loss > 0:
-            winning_trades += 1
-            message = random.choice(JARVIS_SELL_MESSAGES)
-        else:
-            losing_trades += 1
-            message = random.choice(JARVIS_STOP_LOSS_MESSAGES)
-
-        await send_telegram_message(f"{message}\nSold {pi_amount:.4f} PI @ ${current_price:.4f}\nProfit/Loss: ${profit_loss:.2f}")
-        in_position = False
-        last_trade_time = datetime.now()
-        return True
+        candles = exchange.fetch_ohlcv(SYMBOL, '5m', limit=14)
+        tr_values = [max(candle[2] - candle[3], abs(candle[2] - candle[4]), abs(candle[3] - candle[4])) for candle in candles]
+        return sum(tr_values) / len(tr_values)
 
     except Exception as e:
-        logger.error(f"Error placing sell order: {e}")
-        await send_telegram_message(f"{random.choice(JARVIS_ERROR_MESSAGES)}\nSell order failed: {e}")
+        logger.error(f"Error calculating ATR: {e}")
+        return STOP_LOSS
+
+async def is_market_trending_up():
+    """Check if the market is in an uptrend using moving averages"""
+    try:
+        candles = exchange.fetch_ohlcv(SYMBOL, '5m', limit=50)
+        closes = [candle[4] for candle in candles]
+
+        sma_10 = sum(closes[-10:]) / 10
+        sma_50 = sum(closes[-50:]) / 50
+
+        return sma_10 > sma_50  # Buy only if SMA-10 is above SMA-50
+
+    except Exception as e:
+        logger.error(f"Error calculating trend: {e}")
         return False
 
 async def trading_loop():
@@ -174,42 +161,37 @@ async def trading_loop():
 
     while True:
         try:
-            current_data = await get_market_data()
-            if not current_data:
-                await asyncio.sleep(60)
+            market_data = await get_market_data()
+            if not market_data:
+                await asyncio.sleep(RETRY_DELAY)
                 continue
 
-            current_price = current_data['price']
+            current_price = market_data['price']
 
-            # Check if we need to exit position
             if in_position:
                 profit_percentage = (current_price - entry_price) / entry_price
-
                 if profit_percentage >= PROFIT_THRESHOLD:
-                    await sell_pi(current_price, "profit")
-                elif profit_percentage <= -STOP_LOSS:
-                    await sell_pi(current_price, "stop_loss")
+                    await send_telegram_message(random.choice(JARVIS_SELL_MESSAGES))
+                elif profit_percentage <= -await calculate_atr():
+                    await send_telegram_message(random.choice(JARVIS_STOP_LOSS_MESSAGES))
 
-            else:
-                await buy_pi(current_price)
+            elif await is_market_oversold() and await is_market_trending_up():
+                if last_trade_time and (datetime.now() - last_trade_time).seconds < TRADE_COOLDOWN:
+                    await send_telegram_message("Trade cooldown active. Waiting for next opportunity.")
+                else:
+                    await send_telegram_message(random.choice(JARVIS_BUY_MESSAGES))
 
             await asyncio.sleep(60)
 
         except Exception as e:
             logger.error(f"Error in trading loop: {e}")
-            await send_telegram_message(f"{random.choice(JARVIS_ERROR_MESSAGES)}\nTrading systems rebooting.")
-            await asyncio.sleep(120)
-
-async def setup_telegram_commands():
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
-    application.add_handler(CommandHandler("status", status_command))
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
+            await send_telegram_message(f"{random.choice(JARVIS_ERROR_MESSAGES)}\nRestarting system in {RETRY_DELAY} seconds.")
+            await asyncio.sleep(RETRY_DELAY)
 
 async def main():
+    """Initialize trading bot and Telegram commands"""
     logging.info("Trading bot activated!")
-    await asyncio.gather(setup_telegram_commands(), trading_loop())
+    await asyncio.gather(trading_loop())
 
 if __name__ == "__main__":
     asyncio.run(main())
