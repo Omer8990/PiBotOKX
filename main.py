@@ -9,8 +9,13 @@ from dotenv import load_dotenv
 import random
 
 # Load environment variables
+from dotenv import load_dotenv
+import os
+
 load_dotenv()
 
+domain_myokx = 'https://my.okx.com'
+domain_www = 'https://www.okx.com'
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -19,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Initialize OKX exchange
-exchange = ccxt.okx({
+exchange = ccxt.myokx({
     'apiKey': os.getenv('OKX_API_KEY'),
     'secret': os.getenv('OKX_SECRET'),
     'password': os.getenv('OKX_PASSWORD'),
@@ -31,8 +36,8 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 # Trading parameters (high risk settings)
-SYMBOL = 'PI/USDT'
-BASE_ORDER_SIZE = 0.85  # Use 85% of available USDT for each trade
+SYMBOL = 'PI/USD'
+BASE_ORDER_SIZE = 0.85  # Use 85% of aevailable USDT for each trade
 PROFIT_THRESHOLD = 0.03  # 3% profit target
 STOP_LOSS = 0.05  # 5% stop loss
 VOLATILITY_THRESHOLD = 0.02  # 2% price movement to trigger analysis
@@ -109,7 +114,7 @@ async def get_available_balance():
     """Get available USDT balance"""
     try:
         balance = exchange.fetch_balance()
-        return balance['USDT']['free']
+        return balance['USD']['free']
     except Exception as e:
         logger.error(f"Error fetching balance: {e}")
         await send_telegram_message(f"Unable to access wallet funds, sir. Error: {e}")
@@ -190,7 +195,7 @@ async def buy_pi(current_price):
         usdt_balance = await get_available_balance()
         order_size_usdt = usdt_balance * BASE_ORDER_SIZE
 
-        if order_size_usdt < 10:  # Minimum trade size
+        if order_size_usdt < 2:  # Minimum trade size
             await send_telegram_message("Sir, available USDT balance is too low for meaningful trade execution.")
             return False
 
@@ -209,7 +214,7 @@ async def buy_pi(current_price):
         message = f"{random.choice(JARVIS_BUY_MESSAGES)}\n\n" \
                   f"📊 Trade Summary:\n" \
                   f"🔹 Bought: {amount:.4f} PI @ ${current_price:.4f}\n" \
-                  f"🔹 Total: ${order_size_usdt:.2f} USDT\n" \
+                  f"🔹 Total: ${order_size_usdt:.2f} USD\n" \
                   f"🔹 Target: ${current_price * (1 + PROFIT_THRESHOLD):.4f}\n" \
                   f"🔹 Stop Loss: ${current_price * (1 - STOP_LOSS):.4f}\n\n" \
                   f"Risk assessment: High. But as you say, sir, 'No risk, no reward.'"
@@ -243,8 +248,6 @@ async def sell_pi(current_price, reason="profit"):
         # Calculate profit/loss
         entry_value = pi_amount * entry_price
         exit_value = pi_amount * current_price
-        profit_loss = exit_value - entry_value
-        profit_percent = (profit_loss / entry_value) * 100
 
         # Update position status
         in_position = False
@@ -346,7 +349,7 @@ async def trading_loop():
 async def start_command(update, context):
     """Start the bot"""
     await update.message.reply_text(
-        "JARVIS trading protocol activated, sir. Monitoring PI/USDT for aggressive trading opportunities."
+        "JARVIS trading protocol activated, sir. Monitoring PI/USD for aggressive trading opportunities."
     )
 
 
@@ -358,7 +361,7 @@ async def status_command(update, context):
     status_message = f"📊 Status Report - {datetime.now().strftime('%H:%M:%S')}\n\n"
     status_message += f"🔹 PI Price: ${market_data['price']:.4f}\n"
     status_message += f"🔹 24h Change: {market_data['change_24h']:.2f}%\n"
-    status_message += f"🔹 USDT Balance: ${balance:.2f}\n"
+    status_message += f"🔹 USD Balance: ${balance:.2f}\n"
 
     if in_position:
         profit_percentage = (market_data['price'] - entry_price) / entry_price * 100
@@ -417,7 +420,7 @@ async def set_params_command(update, context):
 
         await update.message.reply_text(
             f"Parameters updated successfully, sir:\n"
-            f"🔹 Order Size: {BASE_ORDER_SIZE * 100}% of USDT\n"
+            f"🔹 Order Size: {BASE_ORDER_SIZE * 100}% of USD\n"
             f"🔹 Profit Target: {PROFIT_THRESHOLD * 100}%\n"
             f"🔹 Stop Loss: {STOP_LOSS * 100}%"
         )
